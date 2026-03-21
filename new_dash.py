@@ -44,20 +44,46 @@ else:
     st.success("✅ YOLOv8 ve Sensör Modelleri Entegre Edildi.")
 
 def get_sensor_data():
-    """Simüle edilmiş sensör verisi üretir"""
-    air_temp = random.uniform(295, 305)
-    if random.random() < 0.15:
-        proc_temp = random.uniform(315, 330) 
-        torque = random.uniform(60, 90)      
+    """Modelin 'HATA' olarak algılayacağı daha keskin değerler üretir"""
+    
+    ambient_c = random.uniform(24, 26)
+    
+    # Anomali ihtimalini test için %20'ye çıkaralım
+    if random.random() < 0.20: 
+        # KRİTİK DURUM: Yüksek Sıcaklık + Çok Yüksek Tork
+        object_c = random.uniform(95, 105) # Ciddi ısınma
+        x_g = random.uniform(7.0, 9.0)    # Şiddetli sarsıntı
+        y_g = random.uniform(7.0, 9.0)
+        z_g = random.uniform(10.0, 12.0)
         status = "CRITICAL"
+        
+        # Modelin "Machine Failure" demesi için Torku 70+ üzerine çıkaralım
+        simulated_torque = random.uniform(75.0, 90.0) 
+        simulated_rpm = random.uniform(1100, 1200) # Düşük devir, yüksek yük
     else:
-        proc_temp = random.uniform(300, 310)
-        torque = random.uniform(30, 45)
+        # NORMAL DURUM
+        object_c = random.uniform(35, 45)
+        x_g = random.uniform(0.1, 0.5)
+        y_g = random.uniform(0.1, 0.5)
+        z_g = random.uniform(0.9, 1.1)
         status = "NORMAL"
-    data = pd.DataFrame([[air_temp, proc_temp, 1400.0, torque, 50.0]], 
-                        columns=['Air temperature [K]', 'Process temperature [K]', 
-                                 'Rotational speed [rpm]', 'Torque [Nm]', 'Tool wear [min]'])
-    return data, status
+        
+        simulated_torque = random.uniform(35.0, 45.0) # İdeal tork aralığı
+        simulated_rpm = 1500.0
+
+    # Model girişi (Kelvin dönüşümü)
+    data = pd.DataFrame([[
+        ambient_c + 273.15, 
+        object_c + 273.15, 
+        simulated_rpm, 
+        simulated_torque, 
+        180.0 # Tool wear: Yüksek aşınma da hatayı tetikler
+    ]], columns=[
+        'Air temperature [K]', 'Process temperature [K]', 
+        'Rotational speed [rpm]', 'Torque [Nm]', 'Tool wear [min]'
+    ])
+    
+    return data, status, (ambient_c, object_c, x_g, y_g, z_g)
 
 def analyze_image_with_yolo():
     """YOLOv8 ile hata tespiti ve lokalizasyonu yapar"""
@@ -94,8 +120,9 @@ with col1:
     st.subheader("⚙️ Kontrol Paneli")
     run_sim = st.toggle('Simülasyonu Başlat', value=False)
     st.markdown("---")
-    kpi_temp = st.empty()
-    kpi_vib = st.empty()
+    kpi_amb = st.empty()
+    kpi_obj = st.empty()
+    kpi_gforce = st.empty() # X-Y-Z'yi birleşik veya ayrı verebilirsin
     kpi_status = st.empty()
 
 with col2:
@@ -108,36 +135,61 @@ with col3:
     alert_box = st.empty()
 
 if run_sim:
-    history_df = pd.DataFrame(columns=['Time', 'Temperature', 'Torque'])
+    # 1. Geçmiş verileri tutmak için genişletilmiş DataFrame
+    history_df = pd.DataFrame(columns=['Time', 'Ambient', 'Object', 'X-G', 'Y-G', 'Z-G'])
+    
     for i in range(100):
-        data, _ = get_sensor_data()
-        current_temp = data['Process temperature [K]'].values[0]
-        current_torque = data['Torque [Nm]'].values[0]
+        # --- DÜZELTME BURADA: 3 değer bekliyoruz ---
+        data, _, physical_vals = get_sensor_data()
         
+        # Fiziksel değerleri (Ambient, Object, X-Y-Z) ayrı değişkenlere açalım
+        amb, obj, xg, yg, zg = physical_vals
+        
+        # 3. Model Tahmini (Artık hata vermeyecek çünkü 'data' içinde modelin beklediği isimler var)
         sensor_pred = sensor_model.predict(data)[0]
         
-        kpi_temp.metric(label="Sıcaklık (K)", value=f"{current_temp:.1f} K")
-        kpi_vib.metric(label="Titreşim (Nm)", value=f"{current_torque:.1f} Nm")
+        # 4. Sol Paneldeki KPI Metriklerini Güncelle
+        # Not: kpi_temp ve kpi_vib değişkenlerinin yukarıda tanımlandığından emin ol
+        kpi_amb.metric(label="Ortam Sıcaklığı", value=f"{amb:.1f} °C")
+        kpi_obj.metric(label="Nesne Sıcaklığı", value=f"{obj:.1f} °C", delta=f"{obj-40:.1f} °C")
+        kpi_status.empty() # Durum kutusunu temizle
         
-        # Plotting
-        new_row = pd.DataFrame({'Time': [i], 'Temperature': [current_temp], 'Torque': [current_torque]})
+        # 5. Grafik Verisini Hazırla ve Plotly ile Çiz
+        new_row = pd.DataFrame({
+            'Time': [i], 
+            'Ambient': [amb], 
+            'Object': [obj], 
+            'X-G': [xg], 
+            'Y-G': [yg], 
+            'Z-G': [zg]
+        })
         history_df = pd.concat([history_df, new_row], ignore_index=True)
-        fig = px.line(history_df.tail(20), x='Time', y=['Temperature', 'Torque'])
+        
+        # Son 30 veriyi gösteren interaktif grafik
+        fig = px.line(
+            history_df.tail(30), 
+            x='Time', 
+            y=['Ambient', 'Object', 'X-G', 'Y-G', 'Z-G'],
+            labels={'value': 'Değer', 'variable': 'Sensör Tipi'},
+            title="Gerçek Zamanlı Telemetri Analizi"
+        )
+        fig.update_layout(template="plotly_dark", legend_orientation="h")
         chart_placeholder.plotly_chart(fig, use_container_width=True)
 
+        # 6. Karar Mekanizması ve YOLO Entegrasyonu
         if sensor_pred == 1: 
             kpi_status.error("⚠️ ANOMALİ TESPİT EDİLDİ")
             proc_img, label, conf = analyze_image_with_yolo()
             
             if proc_img is not None:
-                camera_placeholder.image(proc_img, caption="AI Hata Lokalizasyonu", use_container_width=True)
+                camera_placeholder.image(proc_img, caption="YOLOv8 Hata Analizi", use_container_width=True)
                 if label == 'Defect':
-                    alert_box.warning(f"🚨 HATA TESPİTİ: {label} (%{conf*100:.1f})")
+                    alert_box.warning(f"🚨 KRİTİK HATA: {label} (Güven: %{conf*100:.1f})")
                 else:
-                    alert_box.success(f"✅ Görüntü Temiz (%{conf*100:.1f})")
+                    alert_box.success(f"✅ Görsel Kontrol Temiz (Güven: %{conf*100:.1f})")
         else:
             kpi_status.success("✅ SİSTEM NORMAL")
-            camera_placeholder.info("Kamera Beklemede...")
+            camera_placeholder.info("Kamera Beklemede... (Anomali bekleniyor)")
             alert_box.empty()
             
-        time.sleep(1)
+        time.sleep(0.8)
