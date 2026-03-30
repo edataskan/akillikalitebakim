@@ -624,7 +624,10 @@ with tab_live:
                 </div>""", unsafe_allow_html=True)
                 alert_ph.empty()
 
-            time.sleep(0.8)
+            if sensor_pred == 1 and proc_img is not None:
+                time.sleep(5.0)
+            else:
+                time.sleep(0.8)
 
 
 # ╔══════════════════════════════════════════════════════════╗
