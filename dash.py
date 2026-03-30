@@ -50,8 +50,14 @@ if "popup_closed" not in st.session_state:
 if "run_sim_toggle" not in st.session_state:
     st.session_state.run_sim_toggle = False
 
+dialog_decorator = None
 if hasattr(st, "dialog"):
-    @st.dialog("BETEDATA PROJESİ")
+    dialog_decorator = st.dialog
+elif hasattr(st, "experimental_dialog"):
+    dialog_decorator = st.experimental_dialog
+
+if dialog_decorator is not None:
+    @dialog_decorator("BETEDATA PROJESİ")
     def startup_popup():
         st.markdown("""
         <div style='text-align: center; margin-bottom: 16px;'>
@@ -87,6 +93,7 @@ if hasattr(st, "dialog"):
 else:
     if not st.session_state.popup_closed:
         st.info("betadata projesi: Lütfen simülasyonu kontrol panelinden başlatın.")
+        st.session_state.popup_closed = True
 
 # Global CSS – applied once
 st.markdown("""
@@ -588,7 +595,7 @@ with tab_live:
 
                 if proc_img is not None:
                     cam_ph.image(proc_img, caption="YOLOv8 Hata Lokalizasyonu",
-                                 use_container_width=True)
+                                 use_column_width=True)
                     if label == "Defect":
                         alert_ph.markdown(f"""
                         <div class="alert-banner alert-critical">
