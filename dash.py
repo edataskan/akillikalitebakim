@@ -625,7 +625,7 @@ with tab_live:
                 alert_ph.empty()
 
             if sensor_pred == 1 and proc_img is not None:
-                time.sleep(5.0)
+                time.sleep(3.0)
             else:
                 time.sleep(0.8)
 
