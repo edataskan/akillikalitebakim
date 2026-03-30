@@ -57,11 +57,10 @@ elif hasattr(st, "experimental_dialog"):
     dialog_decorator = st.experimental_dialog
 
 if dialog_decorator is not None:
-    @dialog_decorator("BETEDATA PROJESİ")
+    @dialog_decorator("HAVELSAN SUİT PROGRAMI -BETEDATA PROJESİ")
     def startup_popup():
         st.markdown("""
         <style>
-            /* Popup'taki (X) kapatma butonunu gizle */
             [data-testid="stModal"] button[aria-label="Close"] {
                 display: none !important;
             }
@@ -70,8 +69,8 @@ if dialog_decorator is not None:
             }
         </style>
         <div style='text-align: center; margin-bottom: 16px;'>
-            <h3 style='color: #f0ede8; margin-bottom: 4px; font-weight: 600;'>Akıllı Kalite Kontrol Merkezi</h3>
-            <p style='color: #888; font-size: 14px; margin-top: 0;'>FDM 3D Yazıcı Otonom Hata Tespit Sistemi</p>
+            <h3 style='color: #f0ede8; margin-bottom: 4px; font-weight: 600;'>Akıllı Kalite Kontrol Sistemi Otonom Hata Tespiti </h3>
+            
         </div>
         """, unsafe_allow_html=True)
         
@@ -250,14 +249,29 @@ html, body, [class*="css"] {
 # ──────────────────────────────────────────────────────────
 # HEADER
 # ──────────────────────────────────────────────────────────
-st.markdown("""
+import base64
+
+def get_base64_image(image_path):
+    if os.path.exists(image_path):
+        with open(image_path, "rb") as img_file:
+            return base64.b64encode(img_file.read()).decode()
+    return ""
+
+logo_b64 = get_base64_image("logo.png")
+logo_html = f'<img src="data:image/png;base64,{logo_b64}" width="65" style="border-radius:4px; object-fit:contain;" />' if logo_b64 else '<span style="font-size:32px;">🎓</span>'
+
+st.markdown(f"""
 <div class="app-header">
     <div style="font-size:26px">🏭</div>
     <div>
-        <h1>Akıllı Kalite Kontrol Merkezi</h1>
+        <h1 style="font-size:18px; margin-bottom:4px; color:#f0ede8;">BETEDATA HAVELSAN SUIT PROGRAMI - AKILLI KALİTE KONTROL SİSTEMİ</h1>
     </div>
-    <div style="margin-left:auto">
-        <span class="badge">● CANLI</span>
+    <div style="margin-left:auto; display:flex; align-items:center; gap:14px; text-align:right;">
+        <div style="line-height: 1.4;">
+            <div style="font-size: 15px; font-weight: 600; color: #1D9E75; letter-spacing: 0.05em;">MUĞLA SITKI KOÇMAN ÜNİVERSİTESİ</div>
+            <div style="font-size: 15px; color: #888; font-weight: 500;">Betül YENİTOPCU & Eda TAŞKAN</div>
+        </div>
+        {logo_html}
     </div>
 </div>
 """, unsafe_allow_html=True)
