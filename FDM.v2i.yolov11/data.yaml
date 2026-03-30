@@ -1,0 +1,13 @@
+train: ../train/images
+val: ../valid/images
+test: ../test/images
+
+nc: 6
+names: ['Blobs', 'Cracks', 'Curling_Spagetti', 'Stringing', 'Warping', 'Without deffect']
+
+roboflow:
+  workspace: asds-workspace-a21jb
+  project: fdm-sw9eb-ignln
+  version: 2
+  license: CC BY 4.0
+  url: https://app.roboflow.com/asds-workspace-a21jb/fdm-sw9eb-ignln/2
