@@ -60,6 +60,15 @@ if dialog_decorator is not None:
     @dialog_decorator("BETEDATA PROJESİ")
     def startup_popup():
         st.markdown("""
+        <style>
+            /* Popup'taki (X) kapatma butonunu gizle */
+            [data-testid="stModal"] button[aria-label="Close"] {
+                display: none !important;
+            }
+            div[data-testid="stModalCloseButton"] {
+                display: none !important;
+            }
+        </style>
         <div style='text-align: center; margin-bottom: 16px;'>
             <h3 style='color: #f0ede8; margin-bottom: 4px; font-weight: 600;'>Akıllı Kalite Kontrol Merkezi</h3>
             <p style='color: #888; font-size: 14px; margin-top: 0;'>FDM 3D Yazıcı Otonom Hata Tespit Sistemi</p>
@@ -83,7 +92,7 @@ if dialog_decorator is not None:
         st.success("💡 **Dashboard**, her iki katmanı birleştirerek tek ekranda tam hakimiyet sunar.")
         
         st.markdown("<div style='text-align: center; margin-top: 15px; margin-bottom: 10px; font-size: 13px; color: #888;'>Simülasyon başlatma komutunu onaylayın</div>", unsafe_allow_html=True)
-        if st.button("Simülasyonu Başlat 🚀", type="primary", use_container_width=True):
+        if st.button("Simülasyonu Başlat ", type="primary", use_container_width=True):
             st.session_state.run_sim_toggle = True
             st.session_state.popup_closed = True
             st.rerun()
@@ -531,21 +540,97 @@ with tab_live:
         </div>
         """, unsafe_allow_html=True)
 
-    # ── Default idle states ─────────────────────────────────
+    # ── Default idle states & Renderer ──────────────────────
+    if "last_sim_state" not in st.session_state:
+        st.session_state.last_sim_state = None
+
+    def render_dashboard(state, render_key=""):
+        amb, obj, sim_torque, sim_rpm = state["amb"], state["obj"], state["sim_torque"], state["sim_rpm"]
+        history_df = state["history_df"]
+        sensor_pred = state["sensor_pred"]
+        proc_img, label, conf = state.get("proc_img"), state.get("label"), state.get("conf", 0.0)
+
+        # KPI cards
+        render_kpi(kpi_amb,    "Ortam Sıcaklığı", amb,       "°C", (amb-20)/20*100,     CLR_NORMAL)
+        render_kpi(kpi_obj,    "Nesne Sıcaklığı", obj,       "°C", (obj-20)/90*100,
+                   CLR_CRITICAL if obj > 80 else CLR_WARNING if obj > 55 else CLR_NORMAL)
+        render_kpi(kpi_torque, "Tork",            sim_torque, "Nm", sim_torque/90*100,
+                   CLR_CRITICAL if sim_torque > 70 else CLR_WARNING if sim_torque > 55 else CLR_NORMAL)
+        render_kpi(kpi_rpm,    "Devir",           sim_rpm,    "RPM", sim_rpm/1500*100, CLR_NORMAL)
+
+        # Telemetry chart
+        chart_ph.plotly_chart(
+            build_telemetry_chart(history_df),
+            use_container_width=True,
+            key=f"telemetry_{render_key}",
+        )
+
+        # Gauges
+        gauge_temp.plotly_chart(build_gauge(obj, "Nesne Sıc.", 0, 120, 55, 80, "°C"),
+                                use_container_width=True, key=f"gauge_temp_{render_key}")
+        gauge_tork.plotly_chart(build_gauge(sim_torque, "Tork", 0, 90, 55, 70, " Nm"),
+                                use_container_width=True, key=f"gauge_tork_{render_key}")
+        gauge_rpm.plotly_chart(build_gauge(sim_rpm, "Devir", 0, 1600, 1300, 1500, " RPM"),
+                               use_container_width=True, key=f"gauge_rpm_{render_key}")
+
+        # Status & vision
+        if sensor_pred == 1:
+            status_box.markdown("""
+            <div class="status-pill status-anomaly">
+                <span class="status-dot dot-anomaly"></span>
+                ANOMALİ TESPİT EDİLDİ
+            </div>""", unsafe_allow_html=True)
+
+            if proc_img is not None:
+                cam_ph.image(proc_img, caption="YOLOv8 Hata Lokalizasyonu", use_column_width=True)
+                if label == "Defect":
+                    alert_ph.markdown(f"""
+                    <div class="alert-banner alert-critical">
+                        🚨 <strong>KRİTİK HATA:</strong> {label} — Güven: %{conf*100:.1f}
+                    </div>""", unsafe_allow_html=True)
+                else:
+                    alert_ph.markdown(f"""
+                    <div class="alert-banner alert-ok">
+                        ✅ Görsel kontrol temiz — Güven: %{conf*100:.1f}
+                    </div>""", unsafe_allow_html=True)
+            else:
+                cam_ph.markdown("""
+                <div class="alert-banner alert-info">
+                    ⚠️ Görüntü analizi yapılamadı — klasör/resim kontrolü yapın.
+                </div>""", unsafe_allow_html=True)
+        else:
+            status_box.markdown("""
+            <div class="status-pill status-normal">
+                <span class="status-dot dot-normal"></span>
+                Sistem Normal
+            </div>""", unsafe_allow_html=True)
+            cam_ph.markdown("""
+            <div class="alert-banner alert-info" style="margin-top:8px">
+                📷 Kamera bekleniyor — anomali tespit edildiğinde analiz başlar.
+            </div>""", unsafe_allow_html=True)
+            alert_ph.empty()
+
+
+    # ── Handle stopped state ────────────────────────────────
     if not run_sim:
-        status_box.markdown("""
-        <div class="status-pill" style="background:rgba(255,255,255,0.04);color:#555;border:1px solid rgba(255,255,255,0.07)">
-            <span class="status-dot" style="background:#444"></span>
-            Bekleniyor
-        </div>""", unsafe_allow_html=True)
-        cam_ph.markdown("""
-        <div class="alert-banner alert-info" style="margin-top:8px">
-            📷 Simülasyon başlatıldığında görüntü analizi yapılır.
-        </div>""", unsafe_allow_html=True)
+        if st.session_state.last_sim_state is not None:
+            render_dashboard(st.session_state.last_sim_state, render_key="idle")
+        else:
+            status_box.markdown("""
+            <div class="status-pill" style="background:rgba(255,255,255,0.04);color:#555;border:1px solid rgba(255,255,255,0.07)">
+                <span class="status-dot" style="background:#444"></span>
+                Bekleniyor
+            </div>""", unsafe_allow_html=True)
+            cam_ph.markdown("""
+            <div class="alert-banner alert-info" style="margin-top:8px">
+                📷 Simülasyon başlatıldığında görüntü analizi yapılır.
+            </div>""", unsafe_allow_html=True)
 
     # ── Simulation loop ─────────────────────────────────────
     if run_sim:
         history_df = pd.DataFrame(columns=["Time", "Ambient", "Object", "X-G", "Y-G", "Z-G"])
+        if st.session_state.last_sim_state is not None and not st.session_state.last_sim_state["history_df"].empty:
+            history_df = st.session_state.last_sim_state["history_df"]
 
         for i in range(100):
             data, sim_status, physical_vals = get_sensor_data()
@@ -553,76 +638,32 @@ with tab_live:
 
             sensor_pred = sensor_model.predict(data)[0] if sensor_model else 0
 
-            # KPI cards
-            render_kpi(kpi_amb,    "Ortam Sıcaklığı", amb,       "°C", (amb-20)/20*100,     CLR_NORMAL)
-            render_kpi(kpi_obj,    "Nesne Sıcaklığı", obj,       "°C", (obj-20)/90*100,
-                       CLR_CRITICAL if obj > 80 else CLR_WARNING if obj > 55 else CLR_NORMAL)
-            render_kpi(kpi_torque, "Tork",            sim_torque, "Nm", sim_torque/90*100,
-                       CLR_CRITICAL if sim_torque > 70 else CLR_WARNING if sim_torque > 55 else CLR_NORMAL)
-            render_kpi(kpi_rpm,    "Devir",           sim_rpm,    "RPM", sim_rpm/1500*100, CLR_NORMAL)
-
-            # Telemetry chart
-            new_row = pd.DataFrame({"Time": [i], "Ambient": [amb], "Object": [obj],
+            new_row = pd.DataFrame({"Time": [i + (history_df["Time"].max() + 1 if not history_df.empty else 0)], 
+                                    "Ambient": [amb], "Object": [obj],
                                     "X-G": [xg], "Y-G": [yg], "Z-G": [zg]})
             history_df = pd.concat([history_df, new_row], ignore_index=True)
-            chart_ph.plotly_chart(
-                build_telemetry_chart(history_df.tail(30)),
-                use_container_width=True,
-                key=f"telemetry_{i}",
-            )
+            recent_history = history_df.tail(30).copy()
 
-            # Gauges
-            gauge_temp.plotly_chart(build_gauge(obj, "Nesne Sıc.", 0, 120, 55, 80, "°C"),
-                                    use_container_width=True, key=f"gauge_temp_{i}")
-            gauge_tork.plotly_chart(build_gauge(sim_torque, "Tork", 0, 90, 55, 70, " Nm"),
-                                    use_container_width=True, key=f"gauge_tork_{i}")
-            gauge_rpm.plotly_chart(build_gauge(sim_rpm, "Devir", 0, 1600, 1300, 1500, " RPM"),
-                                   use_container_width=True, key=f"gauge_rpm_{i}")
-
-            # Status & vision
+            proc_img, label, conf = None, "", 0.0
+            image_ok = False
+            
             if sensor_pred == 1:
-                status_box.markdown("""
-                <div class="status-pill status-anomaly">
-                    <span class="status-dot dot-anomaly"></span>
-                    ANOMALİ TESPİT EDİLDİ
-                </div>""", unsafe_allow_html=True)
-
                 proc_img, label, conf = analyze_image_with_yolo()
                 image_ok = proc_img is not None
                 yolo_for_log = label if label in ("Defect", "Normal") else "Normal"
-
                 append_error_log(i, sim_status, yolo_for_log, image_ok, obj, sim_torque, sim_rpm)
 
-                if proc_img is not None:
-                    cam_ph.image(proc_img, caption="YOLOv8 Hata Lokalizasyonu",
-                                 use_column_width=True)
-                    if label == "Defect":
-                        alert_ph.markdown(f"""
-                        <div class="alert-banner alert-critical">
-                            🚨 <strong>KRİTİK HATA:</strong> {label} — Güven: %{conf*100:.1f}
-                        </div>""", unsafe_allow_html=True)
-                    else:
-                        alert_ph.markdown(f"""
-                        <div class="alert-banner alert-ok">
-                            ✅ Görsel kontrol temiz — Güven: %{conf*100:.1f}
-                        </div>""", unsafe_allow_html=True)
-                else:
-                    cam_ph.markdown("""
-                    <div class="alert-banner alert-info">
-                        ⚠️ Görüntü analizi yapılamadı — klasör/resim kontrolü yapın.
-                    </div>""", unsafe_allow_html=True)
+            # Store state in session_state before rendering
+            st.session_state.last_sim_state = {
+                "amb": amb, "obj": obj, "sim_torque": sim_torque, "sim_rpm": sim_rpm,
+                "history_df": recent_history,
+                "sensor_pred": sensor_pred,
+                "proc_img": proc_img,
+                "label": label,
+                "conf": conf
+            }
 
-            else:
-                status_box.markdown("""
-                <div class="status-pill status-normal">
-                    <span class="status-dot dot-normal"></span>
-                    Sistem Normal
-                </div>""", unsafe_allow_html=True)
-                cam_ph.markdown("""
-                <div class="alert-banner alert-info" style="margin-top:8px">
-                    📷 Kamera bekleniyor — anomali tespit edildiğinde analiz başlar.
-                </div>""", unsafe_allow_html=True)
-                alert_ph.empty()
+            render_dashboard(st.session_state.last_sim_state, render_key=str(i))
 
             if sensor_pred == 1 and proc_img is not None:
                 time.sleep(3.0)
